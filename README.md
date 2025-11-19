@@ -1,135 +1,122 @@
-\
-    # sdcard_prep.sh
+# sdcard_prep.sh
+### Aligned FAT32 SD/microSD Card Preparation Script for Linux
 
-    Prepare an SD/microSD card under Linux with a single, aligned FAT32 partition suitable for
-    devices like Nintendo DSi/3DS and other embedded systems that expect a simple FAT32 layout.
+![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
-    > **WARNING:** This script will **destroy all data** on the target device.
+A fast, deterministic SD/microSD preparation script that wipes vendor junk, aligns the partition at the 4 MiB boundary, and formats a clean FAT32 filesystem optimized for consoles (DSi/3DS), embedded systems, and ROM loaders.
 
-    ## What it does
+---
 
-    Given a whole-disk device (e.g. `/dev/sdb`), the script:
+## Features
 
-    1. Performs sanity checks:
-       - Verifies the device exists and is a block device.
-       - Rejects partitions (`/dev/sdb1`, `/dev/mmcblk0p1`, etc.).
-       - Reads device size from `/sys/block/*/size`.
-       - **Refuses to operate on devices larger than 256 GiB** unless explicitly overridden.
-    2. Unmounts any mounted partitions belonging to that device.
-    3. Wipes the first 8 MiB of the device to clear:
-       - old MBR/partition tables,
-       - leftover filesystem headers,
-       - vendor-reserved junk at the head of the disk.
-    4. Uses `sfdisk` to create a new **MBR (dos)** partition table with a single partition:
-       - starts at **4 MiB** (sector `8192` assuming 512-byte sectors),
-       - consumes the **rest of the device**,
-       - partition type **0x0C** (`W95 FAT32 LBA`),
-       - marked bootable (`*`).
-    5. Creates a FAT32 filesystem on the new partition with:
-       - `mkfs.fat -F 32 -s 32` (FAT32, 16 KiB cluster size),
-       - label `SDCARD` by default.
+- **4 MiB-aligned partition** (sector 8192) — optimal for NAND erase blocks  
+- **Safe, explicit workflow** — unmounts partitions, wipes only the first 8 MiB  
+- **FAT32 filesystem** with 16 KiB clusters (`-s 32`)  
+- **Device safety guardrails**  
+  - Rejects devices **>256 GiB** unless `--i-am-not-a-dumbass` is provided  
+  - Requires typing **YES** explicitly  
+- **Single partition** of type **0x0C (W95 FAT32 LBA)**  
+- **Pure Linux tooling** — uses only standard Unix utilities
 
-    This matches a typical “optimal” layout for SD/microSD use-cases:
+---
 
-    - 4 MiB partition alignment plays nicely with typical NAND erase block sizes.
-    - FAT32 with 16 KiB clusters is well-behaved for large, mostly-sequential workloads
-      (ROMs, media, etc.).
-    - A single partition is simple and compatible with consoles and cameras.
+## Usage
 
-    ## Requirements
+```bash
+sudo ./sdcard_prep.sh /dev/sdX [--i-am-not-a-dumbass]
+```
 
-    - Linux
-    - `bash`
-    - `sfdisk` (from `util-linux`)
-    - `dd`
-    - `wipefs`
-    - `mkfs.fat` (`dosfstools`)
-    - `partprobe` (from `parted`) is optional but recommended
-    - `fatlabel` is optional (used only to display the resulting label)
+### Arguments
 
-    ## Usage
+| Argument | Meaning |
+|---------|---------|
+| `/dev/sdX` | Target whole-disk block device (NOT `/dev/sdX1`) |
+| `--i-am-not-a-dumbass` | Required for devices above 256 GiB |
 
-    ```bash
-    sudo ./sdcard_prep.sh /dev/sdX [--i-am-not-a-dumbass]
-    ```
+### Example
 
-    - `/dev/sdX`  
-      Whole-disk block device (e.g. `/dev/sdb`, **not** `/dev/sdb1`).
-    - `--i-am-not-a-dumbass`  
-      Required if the target device is larger than **256 GiB**. This is a guardrail to
-      prevent you from accidentally nuking large HDDs/SSDs/NVMe devices.
+```bash
+sudo ./sdcard_prep.sh /dev/sdb
+```
 
-    The script will:
+For SDXC cards (>256 GiB):
 
-    - Print the detected device size in GiB.
-    - Ask you to type `YES` (exactly) before doing anything destructive.
-    - Show the resulting partition table and filesystem label when finished.
+```bash
+sudo ./sdcard_prep.sh /dev/sdb --i-am-not-a-dumbass
+```
 
-    Example:
+---
 
-    ```bash
-    # DANGER: this will erase /dev/sdb completely
-    sudo ./sdcard_prep.sh /dev/sdb
-    ```
+## What the Script Does
 
-    If `/dev/sdb` is larger than 256 GiB:
+1. Verifies the device exists and is a whole disk.  
+2. Rejects huge devices unless explicitly overridden.  
+3. Unmounts `/dev/sdX1`, `/dev/sdX2`, etc.  
+4. Wipes the first **8 MiB** (clears vendor metadata, GPT/MBR remnants).  
+5. Creates an MBR table with a single, aligned partition:  
+   - **Start:** 4 MiB (`8192` sectors)  
+   - **End:** end of disk  
+   - **Type:** `0x0C` (FAT32 LBA)  
+6. Formats the partition as FAT32:
 
-    ```bash
-    sudo ./sdcard_prep.sh /dev/sdb --i-am-not-a-dumbass
-    ```
+```bash
+mkfs.fat -F 32 -s 32 -n SDCARD /dev/sdX1
+```
 
-    ## Layout details
+---
 
-    The script creates:
+## Why 4 MiB Alignment?
 
-    - **Partition table:** MBR (`dos`)
-    - **Partition 1:**
-      - Start: 4 MiB (sector 8192 @ 512 B/sector)
-      - End: end-of-device
-      - Type: `0x0C` (`W95 FAT32 LBA`)
-      - Bootable flag: set
+Most SD controllers use **4–8 MiB internal erase blocks**. Aligning the filesystem to these boundaries:
 
-    Filesystem:
+- avoids read‑modify‑write cycles  
+- improves performance  
+- reduces FAT wear  
+- increases card lifetime  
 
-    - Type: FAT32
-    - Command: `mkfs.fat -F 32 -s 32 -n SDCARD /dev/sdX1`
-    - Cluster size: 16 KiB (32 sectors × 512 B)
+Perfect for DSi/3DS, Switch payload loaders, FPGA carts, and embedded systems.
 
-    This is tuned for:
+---
 
-    - consoles (e.g. DSi/3DS) and older hardware that expect FAT32,
-    - ROM-loading and sequential read patterns,
-    - minimal metadata churn and reasonable performance on SD controllers.
+## Requirements
 
-    ## Customization
+- Linux  
+- `bash`  
+- `sfdisk`  
+- `wipefs`  
+- `dd`  
+- `mkfs.fat`  
+- `partprobe` (optional)  
+- `fatlabel` (optional)
 
-    If you want to tweak cluster size or label, edit the top of the script:
+---
 
-    ```bash
-    MKFS_OPTS="-F 32 -s 32"   # FAT32, 16 KiB clusters (32 * 512-byte sectors)
-    DEFAULT_LABEL="SDCARD"
-    ```
+## Installation
 
-    Examples:
+```bash
+git clone https://github.com/blockfeed/sdcard_prep.git
+cd sdcard_prep
+chmod +x sdcard_prep.sh
+```
 
-    - 32 KiB clusters:
+---
 
-      ```bash
-      MKFS_OPTS="-F 32 -s 64"
-      ```
+## Example Output
 
-    - Custom label:
+```
+Target device: /dev/sdb (59 GiB)
+Type 'YES' to continue: YES
+>> Unmounting existing partitions...
+>> Wiping first 8 MiB...
+>> Removing filesystem signatures...
+>> Creating new partition table...
+>> Creating FAT32 filesystem...
+sdcard_prep: Success. /dev/sdb1 is ready to use.
+```
 
-      ```bash
-      DEFAULT_LABEL="NDSI"
-      ```
+---
 
-    ## Safety notes
+## License
 
-    - This script is intentionally conservative:
-      - It refuses to run on >256 GiB devices unless you add
-        `--i-am-not-a-dumbass`.
-      - It demands an explicit `YES` before doing anything destructive.
-    - It is still trivially possible to destroy important data if you point it at
-      the wrong device. Double-check `lsblk`/`fdisk -l` before running.
+This project is licensed under the **GNU General Public License v3.0**.
 
