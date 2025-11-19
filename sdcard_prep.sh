@@ -13,7 +13,7 @@
 #       * starts at 4 MiB (sector 8192 assuming 512-byte sectors)
 #       * uses the rest of the device
 #       * type 0x0C (W95 FAT32 LBA)
-#   - format it as FAT32 with 16 KiB clusters (-s 32)
+#   - format it as FAT32 with 32 KiB clusters (-s 64)
 #
 # Usage:
 #   sudo ./sdcard_prep.sh /dev/sdX [--i-am-not-a-dumbass]
@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-MKFS_OPTS="-F 32 -s 32"   # FAT32, 16 KiB clusters (32 * 512-byte sectors)
+MKFS_OPTS="-F 32 -s 64"   # FAT32, 32 KiB clusters (64 * 512-byte sectors)
 DEFAULT_LABEL="SDCARD"
 
 usage() {
@@ -122,7 +122,7 @@ fi
 # --- Unmount existing partitions -----------------------------------------
 
 echo ">> Unmounting any existing partitions on $DEV..."
-awk -v dev="$DEV" '$1 ~ "^"dev"[0-9p]" {print $2}' /proc/mounts | while read -r mnt; do
+awk -v dev="$DEV" '$1 ~ "^"dev"[0-9p]" {print $2}' /proc/mounts |     while read -r mnt; do
     echo "  - umount $mnt"
     umount "$mnt" || true
 done
